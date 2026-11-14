@@ -1,0 +1,104 @@
+package de.hartz.software.reflectionsdemo
+
+import de.hartz.software.reflectionsdemo.showcase.DemoAction
+import de.hartz.software.reflectionsdemo.showcase.DemoPlugin
+import de.hartz.software.reflectionsdemo.showcase.DemoTag
+import de.hartz.software.reflectionsdemo.showcase.ShowcaseFeature
+import org.reflections.Reflections
+import org.reflections.serializers.JsonSerializer
+import org.reflections.serializers.XmlSerializer
+import org.reflections.util.FilterBuilder
+
+data class ShowcaseResult(
+    val jsonSubtypes: Set<String>,
+    val jsonAnnotatedTypes: Set<String>,
+    val xmlSubtypes: Set<String>,
+    val xmlAnnotatedMethods: Set<String>,
+    val xmlAnnotatedFields: Set<String>,
+    val instantiatedDescriptions: List<String>,
+    val directRuntimeScanSubtypesCount: Int
+) {
+    val isAllWorking: Boolean
+        get() = jsonSubtypes == setOf(
+            "de.hartz.software.reflectionsdemo.showcase.AlphaFeature",
+            "de.hartz.software.reflectionsdemo.showcase.BetaFeature"
+        ) &&
+            xmlSubtypes == jsonSubtypes &&
+            jsonAnnotatedTypes.size == 3 &&
+            xmlAnnotatedMethods.size == 2 &&
+            xmlAnnotatedFields.size == 2 &&
+            instantiatedDescriptions.size == 2
+
+    fun formatReport(): String = buildString {
+        appendLine("Reflections Android Showcase")
+        appendLine("Status: ${if (isAllWorking) "ALL BUILD-TIME COLLECT CHECKS PASSED" else "FAILED"}")
+        appendLine()
+        appendLine("1. Pre-scanned JSON collect(context.classLoader):")
+        appendLine("   SubTypesOf(ShowcaseFeature): ${jsonSubtypes.sorted()}")
+        appendLine("   TypesAnnotatedWith(@DemoPlugin): ${jsonAnnotatedTypes.sorted()}")
+        appendLine()
+        appendLine("2. Pre-scanned XML collect(context.classLoader):")
+        appendLine("   SubTypesOf(ShowcaseFeature): ${xmlSubtypes.sorted()}")
+        appendLine("   MethodsAnnotatedWith(@DemoAction): ${xmlAnnotatedMethods.sorted()}")
+        appendLine("   FieldsAnnotatedWith(@DemoTag): ${xmlAnnotatedFields.sorted()}")
+        appendLine()
+        appendLine("3. Instantiated via reflection (even with R8/ProGuard):")
+        instantiatedDescriptions.forEach { appendLine("   - $it") }
+        appendLine()
+        appendLine("4. Direct runtime scan new Reflections(pkg, classLoader):")
+        appendLine("   SubTypesOf(ShowcaseFeature) found = $directRuntimeScanSubtypesCount")
+        appendLine("   (0 on Android ART/Dalvik because APKs contain .dex, not .class files)")
+    }
+}
+
+object ReflectionsShowcaseRunner {
+
+    fun run(classLoader: ClassLoader): ShowcaseResult {
+        val jsonReflections = Reflections.collect(
+            "META-INF/reflections/",
+            FilterBuilder().includePattern(".*-reflections\\.json"),
+            JsonSerializer(),
+            classLoader
+        )
+
+        val xmlReflections = Reflections.collect(
+            "META-INF/reflections/",
+            FilterBuilder().includePattern(".*-reflections\\.xml"),
+            XmlSerializer(),
+            classLoader
+        )
+
+        val jsonSubtypes = jsonReflections.getSubTypesOf(ShowcaseFeature::class.java)
+            .mapTo(linkedSetOf()) { it.name }
+        val jsonAnnotatedTypes = jsonReflections.getTypesAnnotatedWith(DemoPlugin::class.java)
+            .mapTo(linkedSetOf()) { it.name }
+
+        val xmlSubtypesClass = xmlReflections.getSubTypesOf(ShowcaseFeature::class.java)
+        val xmlSubtypes = xmlSubtypesClass.mapTo(linkedSetOf()) { it.name }
+        val xmlAnnotatedMethods = xmlReflections.getMethodsAnnotatedWith(DemoAction::class.java)
+            .mapTo(linkedSetOf()) { "${it.declaringClass.simpleName}.${it.name}" }
+        val xmlAnnotatedFields = xmlReflections.getFieldsAnnotatedWith(DemoTag::class.java)
+            .mapTo(linkedSetOf()) { "${it.declaringClass.simpleName}.${it.name}" }
+
+        val descriptions = xmlSubtypesClass
+            .sortedBy { it.name }
+            .map { clazz -> clazz.getDeclaredConstructor().newInstance().describe() }
+
+        val directScanCount = runCatching {
+            Reflections("de.hartz.software.reflectionsdemo.showcase", classLoader)
+                .getSubTypesOf(ShowcaseFeature::class.java)
+                .size
+        }.getOrDefault(0)
+
+        return ShowcaseResult(
+            jsonSubtypes = jsonSubtypes,
+            jsonAnnotatedTypes = jsonAnnotatedTypes,
+            xmlSubtypes = xmlSubtypes,
+            xmlAnnotatedMethods = xmlAnnotatedMethods,
+            xmlAnnotatedFields = xmlAnnotatedFields,
+            instantiatedDescriptions = descriptions,
+            directRuntimeScanSubtypesCount = directScanCount
+        )
+    }
+}
+
