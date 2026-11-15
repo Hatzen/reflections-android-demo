@@ -19,7 +19,7 @@ import java.util.zip.ZipOutputStream
 class ReflectionsShowcaseUnitTest {
 
     @Test
-    fun generatedMetadataIndexCollectsInSimulatedDirectoryLessApk() {
+    fun generatedMetadataIndexCollectsAndRunsJsonDbInSimulatedDirectoryLessApk() {
         val classLoader = javaClass.classLoader!!
         val jsonUrl = classLoader.getResource("META-INF/reflections/demo-reflections.json")
         val xmlUrl = classLoader.getResource("META-INF/reflections/demo-reflections.xml")
@@ -50,8 +50,12 @@ class ReflectionsShowcaseUnitTest {
                 // Directory entry lookup returns empty in directory-less APK
                 assertFalse(androidLikeLoader.getResources("META-INF/reflections/").hasMoreElements())
 
-                val result = ReflectionsShowcaseRunner.run(androidLikeLoader)
-                assertTrue("Expected all build-time collect checks to pass:\n${result.formatReport()}", result.isAllWorking)
+                val dbDir = File(tempDir, "jsondb")
+                val result = ReflectionsShowcaseRunner.run(androidLikeLoader, dbDir)
+                assertTrue("Expected all build-time collect & JsonDB checks to pass:\n${result.formatReport()}", result.isAllWorking)
+                assertTrue("Expected JsonDB collection showcaseNotes to be created", result.jsonDbCollectionDiscovered)
+                assertEquals(1, result.jsonDbStoredNotes.size)
+                assertTrue(File(dbDir, "showcaseNotes.json").isFile)
                 assertEquals(
                     setOf(AlphaFeature::class.java.name, BetaFeature::class.java.name),
                     result.jsonSubtypes
@@ -70,4 +74,3 @@ class ReflectionsShowcaseUnitTest {
         }
     }
 }
-

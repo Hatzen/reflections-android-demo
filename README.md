@@ -1,22 +1,28 @@
-# Reflections Android Demo (Fork + JitPack + ProGuard/R8)
+# Reflections Android Demo (Fork + Gradle Plugin + JsonDB + ProGuard/R8)
 
-A minimal, end-to-end Android application demonstrating how to run [`org.reflections:reflections`](https://github.com/ronmamo/reflections) on Android—including **ProGuard / R8 minification enabled (`isMinifyEnabled = true`)**—using the Android/Gradle fixes from [`Hatzen/reflections`](https://github.com/Hatzen/reflections/commit/8dc2bbd) via **JitPack**.
+An end-to-end Android application demonstrating how to run [`org.reflections:reflections`](https://github.com/ronmamo/reflections), `gradle-reflections-plugin`, and `jsondb-core` on Android—including **ProGuard / R8 minification enabled (`isMinifyEnabled = true`)**—using the Android/Gradle fixes from:
 
-Related upstream issues:
-- [`ronmamo/reflections#127`](https://github.com/ronmamo/reflections/issues/127)
-- [`manosbatsis/gradle-reflections-plugin#5`](https://github.com/manosbatsis/gradle-reflections-plugin/issues/5)
+- [`Hatzen/reflections`](https://github.com/Hatzen/reflections/commit/8dc2bbd) (fixes [`ronmamo/reflections#127`](https://github.com/ronmamo/reflections/issues/127))
+- `Hatzen/gradle-reflections-plugin` (fixes [`manosbatsis/gradle-reflections-plugin#5`](https://github.com/manosbatsis/gradle-reflections-plugin/issues/5))
+- `Hatzen/jsondb-core` (fixes [`Jsondb/jsondb-core#42`](https://github.com/Jsondb/jsondb-core/issues/42) and [`Jsondb/jsondb-core#53`](https://github.com/Jsondb/jsondb-core/issues/53))
 
 ---
 
-## Why stock `ronmamo/reflections` fails on Android (and what the fork fixes)
+## Why stock libraries failed on Android (and what the forks fix)
 
-1. **Android APKs do not contain `.class` files:** D8/R8 compiles bytecode into `.dex` (`classes.dex`), and Android's `PathClassLoader` / `BaseDexClassLoader` is not a `URLClassLoader`.
-2. **Pre-scanning + `Reflections.collect(...)` failed in stock Reflections** due to several bugs fixed in `Hatzen/reflections@8dc2bbd`:
-   - `new Reflections(pkg, classLoader)` threw `ReflectionsException` (`ConfigurationBuilder.build` didn't accept `ClassLoader` after flattening parameters).
-   - Directory-less Gradle JARs and `.apk` archives return no directory entries for `ClassLoader.getResources("META-INF/reflections/")`, causing `forPackage` / `collect` to return empty stores.
-   - `Vfs` did not recognize `.apk` / `.aar` archive URLs cleanly, mishandled leading `/` or exact file prefixes, and leaked `Vfs.Dir` (`JarFile`) handles.
-   - `JsonSerializer.save(...)` used `Files.write(file.toPath(), ...)`, which crashes on Android API `< 26`.
-   - `Reflections.collect(...)` had no `ClassLoader...` overload for Android `context.classLoader`, hardcoded `XmlSerializer` even for `.json`, and did not fall back via `AndroidManifest.xml` / `META-INF/MANIFEST.MF` inside directory-less APKs.
+1. **`ronmamo/reflections` (`Hatzen/reflections@8dc2bbd`):**
+   - Directory-less Gradle JARs and `.apk` archives return no directory entries for `ClassLoader.getResources("META-INF/reflections/")`, and `PathClassLoader` is not a `URLClassLoader`.
+   - `JsonSerializer.save(...)` used `java.nio.file.Files`, failing on older Android APIs.
+   - `Reflections.collect(...)` needed a `ClassLoader...` overload, JSON/XML serializer auto-detection, and `AndroidManifest.xml` / `META-INF/MANIFEST.MF` URL fallback.
+
+2. **`manosbatsis/gradle-reflections-plugin` (`Hatzen/gradle-reflections-plugin`):**
+   - Original plugin hardcoded Gradle 4 `sourceSets.main.java.outputDir` (broken on Gradle 5+ and absent on Android projects).
+   - Updated to Gradle 8 / JDK 17, uses `sourceSets.main.output.classesDirs` on JVM, supports explicit `inputFiles`/`outputDirectory` + `.json`/`.xml` outputs, and automatically wires AGP 8+ variant tasks (`ScopedArtifact.CLASSES` + `variant.sources.resources.addGeneratedSourceDirectory`) whenever `com.android.base` is applied.
+
+3. **`Jsondb/jsondb-core` (`Hatzen/jsondb-core`):**
+   - Original `CollectionMetaData.builder(dbConfig)` called `new Reflections(baseScanPackage)` without fallback to pre-built indexes or configured `ClassLoader`s, throwing `InvalidJsonDbApiUsageException: No class found with @Document Annotation...` on Android.
+   - `Util.java` imported unused `java.beans.XMLDecoder`/`XMLEncoder` and `JsonDBTemplate` called `BeanUtils.copyProperty` (`java.beans.Introspector` is absent on Android).
+   - Fixed to fall back cleanly to `Reflections.collect(...)` (`META-INF/reflections/*.xml` & `*.json`) filtered by `baseScanPackage` (plus optional `entityClasses` and `ClassLoader...` overrides), removed the unused `java.beans` imports, and added a reflection setter fallback when `java.beans.Introspector` is unavailable.
 
 ---
 
@@ -24,116 +30,53 @@ Related upstream issues:
 
 | Capability | Status on Android | Notes |
 | --- | --- | --- |
-| Build-time Gradle class scanning (`new Reflections(cfg)`) | **Works** | Run in Gradle on host JVM via AGP `ScopedArtifact.CLASSES` before dexing |
-| Runtime `Reflections.collect(...)` with **JSON** (`JsonSerializer`) | **Works** | Recommended for Android (`minSdk 24+` and lighter than XML; requires `gson`) |
-| Runtime `Reflections.collect(...)` with **XML** (`XmlSerializer`) | **Works** | Requires `org.dom4j:dom4j` dependency |
-| Queries (`getSubTypesOf`, `getTypesAnnotatedWith`, `getMethodsAnnotatedWith`, `getFieldsAnnotatedWith`) + `newInstance()` | **Works** | Even with **R8 / ProGuard** enabled when `-keep` rules are configured |
-| Direct runtime scanning (`new Reflections("com.example")`) | **Does NOT work (returns 0 classes)** | Android packages `.dex` bytecode, not `.class` files; showcased live in `MainActivity` |
-| `JavaCodeSerializer` on Android `< API 26` | **Not supported** | Uses `java.nio.file.Files` (use `JsonSerializer` or `XmlSerializer` instead) |
-| Stock `manosbatsis/gradle-reflections-plugin` | **Does NOT work on Android** | Assumes JVM `sourceSets.main.java.outputDir` rather than AGP `androidComponents` |
+| Build-time AGP indexing (`io.github.manosbatsis.gradle.plugin.reflections`) | **Works** | Declarative `reflectionsConfig { ... }` DSL generates `.xml` / `.json` via `ScopedArtifact.CLASSES` |
+| Runtime `Reflections.collect(...)` with **JSON** or **XML** | **Works** | Pass `context.classLoader`; works with R8/ProGuard enabled |
+| `JsonDBTemplate` `@Document` discovery, `createCollection`, `upsert`, `findAll` | **Works (`minSdk 26+`)** | Discovers `@Document` classes via `gradle-reflections-plugin` index; `minSdk 26` provides `java.nio.file` used by JsonDB |
+| Direct runtime scanning (`new Reflections("com.example")`) | **Returns 0 classes** | Android APKs store `.dex`, not `.class` files; showcased live in `MainActivity` |
 
 ---
 
-## Gradle & JitPack Setup
+## Gradle Setup (`gradle-reflections-plugin` + `jsondb-core`)
 
-### 1. Add JitPack (`settings.gradle.kts` & `build.gradle.kts`)
+While the forked `gradle-reflections-plugin` and `jsondb-core` are published locally via `./gradlew publishToMavenLocal`, [`settings.gradle.kts`](settings.gradle.kts), [`build.gradle.kts`](build.gradle.kts), and [`app/build.gradle.kts`](app/build.gradle.kts) resolve them from `mavenLocal()`.
 
-In `settings.gradle.kts`:
+Once pushed to `https://github.com/Hatzen/gradle-reflections-plugin` and `https://github.com/Hatzen/jsondb-core`, switch to JitPack coordinates directly (see comments in [`settings.gradle.kts`](settings.gradle.kts) and [`app/build.gradle.kts`](app/build.gradle.kts)).
+
+### Plugin configuration (`app/build.gradle.kts`)
+
 ```kotlin
-dependencyResolutionManagement {
-    repositories {
-        google()
-        mavenCentral()
-        maven { url = uri("https://jitpack.io") }
-    }
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("io.github.manosbatsis.gradle.plugin.reflections")
+}
+
+reflectionsConfig {
+    packages("de.hartz.software.reflectionsdemo.showcase")
+    indexFilename = "META-INF/reflections/demo-reflections.xml"
+    additionalIndexFilenames("META-INF/reflections/demo-reflections.json")
+    setParams(
+        Scanners.SubTypes,
+        Scanners.TypesAnnotated,
+        Scanners.MethodsAnnotated,
+        Scanners.FieldsAnnotated
+    )
 }
 ```
 
-In root `build.gradle.kts` (`buildscript` is needed so the build-time Gradle task can invoke `Reflections`):
-```kotlin
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-        maven { url = uri("https://jitpack.io") }
-    }
-    dependencies {
-        classpath("com.github.Hatzen:reflections:8dc2bbd")
-        classpath("com.google.code.gson:gson:2.10.1")
-        // Exclude legacy XML pull-parser drivers so they don't hijack AGP's resource merger SAXParserFactory
-        classpath("org.dom4j:dom4j:2.1.3") {
-            exclude(group = "pull-parser", module = "pull-parser")
-            exclude(group = "xpp3", module = "xpp3")
-            exclude(group = "xml-apis", module = "xml-apis")
-        }
-    }
-}
-```
+### Runtime showcase & JsonDB integration (`ReflectionsShowcaseRunner.kt`)
 
-### 2. App dependencies (`app/build.gradle.kts`)
-
-Notice `gson` and `dom4j` are `<optional>true</optional>` in Reflections' `pom.xml`, so declare whichever serializer(s) you use:
-
-```kotlin
-dependencies {
-    implementation("com.github.Hatzen:reflections:8dc2bbd")
-    implementation("com.google.code.gson:gson:2.10.1")
-    implementation("org.dom4j:dom4j:2.1.3") {
-        exclude(group = "pull-parser", module = "pull-parser")
-        exclude(group = "xpp3", module = "xpp3")
-        exclude(group = "xml-apis", module = "xml-apis")
-    }
-}
-```
-
-### 3. Build-time scanning task for AGP 8+ (`app/build.gradle.kts`)
-
-Instead of relying on JVM `sourceSets`, wire an AGP variant task using `ScopedArtifact.CLASSES` + `variant.sources.resources?.addGeneratedSourceDirectory(...)`:
-
-```kotlin
-androidComponents {
-    onVariants { variant ->
-        val taskName = "generate${variant.name.replaceFirstChar { it.uppercase() }}ReflectionsIndex"
-        val taskProvider = tasks.register<GenerateReflectionsIndexTask>(taskName)
-        variant.artifacts
-            .forScope(ScopedArtifacts.Scope.PROJECT)
-            .use(taskProvider)
-            .toGet(
-                ScopedArtifact.CLASSES,
-                GenerateReflectionsIndexTask::allJars,
-                GenerateReflectionsIndexTask::allDirectories
-            )
-        variant.sources.resources?.addGeneratedSourceDirectory(
-            taskProvider,
-            GenerateReflectionsIndexTask::outputDir
-        )
-    }
-}
-```
-
-At build time, `GenerateReflectionsIndexTask` scans the compiled classes into `META-INF/reflections/demo-reflections.json` and `.xml`, and AGP packages them into both Debug and Release APKs/AABs.
-
-### 4. Runtime collection in Android (`ReflectionsShowcaseRunner.kt`)
-
-Always pass `context.classLoader` explicitly so Android's `PathClassLoader` resolves the APK resources reliably from any thread:
-
-```kotlin
-val jsonReflections = Reflections.collect(
-    "META-INF/reflections/",
-    FilterBuilder().includePattern(".*-reflections\\.json"),
-    JsonSerializer(),
-    classLoader
-)
-
-val features = jsonReflections.getSubTypesOf(ShowcaseFeature::class.java)
-val annotated = jsonReflections.getTypesAnnotatedWith(DemoPlugin::class.java)
-```
+`ReflectionsShowcaseRunner.run(classLoader, dbDir)` verifies:
+1. Pre-scanned JSON & XML `Reflections.collect(...)` queries (`ShowcaseFeature`, `@DemoPlugin`, `@DemoAction`, `@DemoTag`).
+2. Reflective instantiation under ProGuard/R8.
+3. Real `JsonDBTemplate` collection auto-discovery and persistence for [`ShowcaseNoteDocument`](app/src/main/java/de/hartz/software/reflectionsdemo/showcase/ShowcaseNoteDocument.java) (`@Document(collection = "showcaseNotes")`).
 
 ---
 
 ## ProGuard / R8 Configuration (`app/proguard-rules.pro`)
 
-Release builds enable `isMinifyEnabled = true` and `isShrinkResources = true`. Because the pre-scanned index stores class, method, and field names as strings for `Class.forName(...)`, you **must** keep those target types/members in [`app/proguard-rules.pro`](app/proguard-rules.pro):
+Release builds enable `isMinifyEnabled = true` and `isShrinkResources = true`. Keep target `@DemoPlugin`, `ShowcaseFeature`, and `@Document` entities in [`app/proguard-rules.pro`](app/proguard-rules.pro):
 
 ```proguard
 -keep @de.hartz.software.reflectionsdemo.showcase.DemoPlugin class * {
@@ -144,26 +87,20 @@ Release builds enable `isMinifyEnabled = true` and `isShrinkResources = true`. B
 -keep class * implements de.hartz.software.reflectionsdemo.showcase.ShowcaseFeature {
     <init>(...);
 }
--keep interface de.hartz.software.reflectionsdemo.showcase.ShowcaseFeature { *; }
--keep @interface de.hartz.software.reflectionsdemo.showcase.DemoPlugin { *; }
--keep @interface de.hartz.software.reflectionsdemo.showcase.DemoAction { *; }
--keep @interface de.hartz.software.reflectionsdemo.showcase.DemoTag { *; }
--keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
+
+# Keep JsonDB @Document entities and runtime classes under R8
+-keep @io.jsondb.annotation.Document class * {
+    <init>(...);
+    <fields>;
+    <methods>;
+}
+-keep class io.jsondb.** { *; }
+-dontwarn io.jsondb.**
+-dontwarn java.beans.**
+-dontwarn org.apache.commons.**
 
 -keep class org.reflections.** { *; }
 -dontwarn org.reflections.**
-
-# Optional server/JVM-only deps referenced by Reflections & dom4j
--dontwarn javax.servlet.**
--dontwarn org.jboss.vfs.**
--dontwarn javassist.**
--dontwarn javax.annotation.**
--dontwarn org.jaxen.**
--dontwarn org.xmlpull.**
--dontwarn javax.xml.stream.**
--dontwarn org.w3c.dom.**
--dontwarn org.relaxng.**
--dontwarn org.slf4j.impl.**
 ```
 
 ---
@@ -171,15 +108,16 @@ Release builds enable `isMinifyEnabled = true` and `isShrinkResources = true`. B
 ## Build & Verify Locally
 
 ```bash
-# Run unit tests (verifies generated metadata + simulated directory-less APK collect)
+# Publish local plugin & jsondb-core forks to mavenLocal() first (until pushed to GitHub/JitPack)
+(cd ../gradle-reflections-plugin && ./gradlew publishToMavenLocal)
+(cd ../jsondb-core && ./gradlew publishToMavenLocal)
+
+# Run unit tests (verifies plugin-generated index + JsonDBTemplate inside simulated directory-less APK)
 ./gradlew testDebugUnitTest
 
 # Run Android Lint
 ./gradlew lintDebug
 
-# Build Debug APK and R8/ProGuard-minified Release APK + AAB
-./gradlew assembleDebug assembleRelease bundleRelease
+# Build Debug APK, ProGuard/R8 Release APK, AAB, and AndroidTest APK
+./gradlew assembleDebug assembleRelease bundleRelease assembleDebugAndroidTest
 ```
-
-On CI (`.github/workflows/ci.yml`), every push to `main` builds Debug & ProGuard Release APKs/AABs, runs unit tests and lint, and verifies that `app-release.apk` contains `classes.dex`, `AndroidManifest.xml`, `META-INF/reflections/demo-reflections.json`, and `META-INF/reflections/demo-reflections.xml`.
-

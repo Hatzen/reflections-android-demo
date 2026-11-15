@@ -6,13 +6,15 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.ScrollView
 import android.widget.TextView
+import java.io.File
 
 class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val reportText = try {
-            val result = ReflectionsShowcaseRunner.run(classLoader)
+            val dbDir = File(filesDir, "jsondb-showcase")
+            val result = ReflectionsShowcaseRunner.run(classLoader, dbDir)
             result.formatReport()
         } catch (t: Throwable) {
             Log.e(TAG, "Showcase failed", t)
@@ -37,4 +39,3 @@ class MainActivity : Activity() {
         private const val TAG = "ReflectionsDemo"
     }
 }
-

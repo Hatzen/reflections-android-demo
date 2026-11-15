@@ -15,6 +15,20 @@
 -keep @interface de.hartz.software.reflectionsdemo.showcase.DemoTag { *; }
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
 
+# Keep JsonDB @Document entities and Jackson JSON serialization metadata under R8
+-keep @io.jsondb.annotation.Document class * {
+    <init>(...);
+    <fields>;
+    <methods>;
+}
+-keep @interface io.jsondb.annotation.Document { *; }
+-keep @interface io.jsondb.annotation.Id { *; }
+-keep @interface io.jsondb.annotation.Secret { *; }
+-keep class io.jsondb.** { *; }
+-dontwarn io.jsondb.**
+-dontwarn java.beans.**
+-dontwarn org.apache.commons.**
+
 # Keep Reflections store/serializer classes used by Gson/XML deserialization
 -keep class org.reflections.** { *; }
 -dontwarn org.reflections.**

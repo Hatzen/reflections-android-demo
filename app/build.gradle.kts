@@ -1,67 +1,9 @@
-import com.android.build.api.artifact.ScopedArtifact
-import com.android.build.api.variant.ScopedArtifacts
-import org.gradle.api.DefaultTask
-import org.gradle.api.file.Directory
-import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.file.RegularFile
-import org.gradle.api.provider.ListProperty
-import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
-import org.reflections.Reflections
 import org.reflections.scanners.Scanners
-import org.reflections.serializers.JsonSerializer
-import org.reflections.serializers.XmlSerializer
-import org.reflections.util.ConfigurationBuilder
-import org.reflections.util.FilterBuilder
-import java.io.File
-import java.net.URLClassLoader
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-}
-
-abstract class GenerateReflectionsIndexTask : DefaultTask() {
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val allDirectories: ListProperty<Directory>
-
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val allJars: ListProperty<RegularFile>
-
-    @get:OutputDirectory
-    abstract val outputDir: DirectoryProperty
-
-    @TaskAction
-    fun generate() {
-        val urls = (allDirectories.get().map { it.asFile } + allJars.get().map { it.asFile })
-            .map { it.toURI().toURL() }
-            .toTypedArray()
-
-        val reflectionsOutDir = outputDir.get().dir("META-INF/reflections").asFile
-        reflectionsOutDir.mkdirs()
-
-        URLClassLoader(urls, Reflections::class.java.classLoader).use { classLoader ->
-            val reflections = Reflections(
-                ConfigurationBuilder()
-                    .forPackage("de.hartz.software.reflectionsdemo.showcase", classLoader)
-                    .filterInputsBy(FilterBuilder().includePackage("de.hartz.software.reflectionsdemo.showcase"))
-                    .addClassLoaders(classLoader)
-                    .setScanners(
-                        Scanners.SubTypes,
-                        Scanners.TypesAnnotated,
-                        Scanners.MethodsAnnotated,
-                        Scanners.FieldsAnnotated
-                    )
-            )
-            reflections.save(File(reflectionsOutDir, "demo-reflections.xml").absolutePath, XmlSerializer())
-            reflections.save(File(reflectionsOutDir, "demo-reflections.json").absolutePath, JsonSerializer())
-        }
-    }
+    id("io.github.manosbatsis.gradle.plugin.reflections")
 }
 
 android {
@@ -70,7 +12,7 @@ android {
 
     defaultConfig {
         applicationId = "de.hartz.software.reflectionsdemo"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
@@ -120,32 +62,32 @@ android {
 
     packaging {
         resources {
-            excludes += listOf("META-INF/LICENSE*", "META-INF/NOTICE*")
+            excludes += listOf(
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE*",
+                "META-INF/DEPENDENCIES*"
+            )
         }
     }
 }
 
-androidComponents {
-    onVariants { variant ->
-        val taskName = "generate${variant.name.replaceFirstChar { it.uppercase() }}ReflectionsIndex"
-        val taskProvider = tasks.register<GenerateReflectionsIndexTask>(taskName)
-        variant.artifacts
-            .forScope(ScopedArtifacts.Scope.PROJECT)
-            .use(taskProvider)
-            .toGet(
-                ScopedArtifact.CLASSES,
-                GenerateReflectionsIndexTask::allJars,
-                GenerateReflectionsIndexTask::allDirectories
-            )
-        variant.sources.resources?.addGeneratedSourceDirectory(
-            taskProvider,
-            GenerateReflectionsIndexTask::outputDir
-        )
-    }
+reflectionsConfig {
+    packages("de.hartz.software.reflectionsdemo.showcase")
+    indexFilename = "META-INF/reflections/demo-reflections.xml"
+    additionalIndexFilenames("META-INF/reflections/demo-reflections.json")
+    setParams(
+        Scanners.SubTypes,
+        Scanners.TypesAnnotated,
+        Scanners.MethodsAnnotated,
+        Scanners.FieldsAnnotated
+    )
 }
 
 dependencies {
     implementation("com.github.Hatzen:reflections:8dc2bbd")
+    // Resolved from mavenLocal() while Hatzen/jsondb-core fork is local;
+    // once pushed to GitHub, switch to com.github.Hatzen:jsondb-core:<commit-or-tag>.
+    implementation("io.jsondb:jsondb-core:1.0.132-j17")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.dom4j:dom4j:2.1.3") {
         exclude(group = "pull-parser", module = "pull-parser")
@@ -157,4 +99,3 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")
 }
-
