@@ -37,13 +37,43 @@ An end-to-end Android application demonstrating how to run [`org.reflections:ref
 
 ---
 
-## Gradle Setup (`gradle-reflections-plugin` + `jsondb-core`)
+## Gradle & JitPack Setup (`gradle-reflections-plugin` + `jsondb-core`)
 
-While the forked `gradle-reflections-plugin` and `jsondb-core` are published locally via `./gradlew publishToMavenLocal`, [`settings.gradle.kts`](settings.gradle.kts), [`build.gradle.kts`](build.gradle.kts), and [`app/build.gradle.kts`](app/build.gradle.kts) resolve them from `mavenLocal()`.
+This demo resolves all three Android-fixed forks directly via **JitPack** release tags in [`settings.gradle.kts`](settings.gradle.kts), [`build.gradle.kts`](build.gradle.kts), and [`app/build.gradle.kts`](app/build.gradle.kts):
 
-Once pushed to `https://github.com/Hatzen/gradle-reflections-plugin` and `https://github.com/Hatzen/jsondb-core`, switch to JitPack coordinates directly (see comments in [`settings.gradle.kts`](settings.gradle.kts) and [`app/build.gradle.kts`](app/build.gradle.kts)).
+- `com.github.Hatzen:reflections:0.10.2-android.1`
+- `com.github.Hatzen.gradle-reflections-plugin:gradle-reflections-plugin:1.2.0-android.2`
+- `com.github.Hatzen:jsondb-core:1.0.132-android.1`
 
-### Plugin configuration (`app/build.gradle.kts`)
+### Plugin resolution (`settings.gradle.kts` & root `build.gradle.kts`)
+
+```kotlin
+// settings.gradle.kts
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+        maven { url = uri("https://jitpack.io") }
+    }
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id == "io.github.manosbatsis.gradle.plugin.reflections") {
+                useModule("com.github.Hatzen.gradle-reflections-plugin:gradle-reflections-plugin:${requested.version}")
+            }
+        }
+    }
+}
+
+// build.gradle.kts
+plugins {
+    id("com.android.application") version "8.7.3" apply false
+    id("org.jetbrains.kotlin.android") version "1.9.25" apply false
+    id("io.github.manosbatsis.gradle.plugin.reflections") version "1.2.0-android.2" apply false
+}
+```
+
+### Plugin & dependency configuration (`app/build.gradle.kts`)
 
 ```kotlin
 plugins {
@@ -62,6 +92,11 @@ reflectionsConfig {
         Scanners.MethodsAnnotated,
         Scanners.FieldsAnnotated
     )
+}
+
+dependencies {
+    implementation("com.github.Hatzen:reflections:0.10.2-android.1")
+    implementation("com.github.Hatzen:jsondb-core:1.0.132-android.1")
 }
 ```
 
@@ -108,10 +143,6 @@ Release builds enable `isMinifyEnabled = true` and `isShrinkResources = true`. K
 ## Build & Verify Locally
 
 ```bash
-# Publish local plugin & jsondb-core forks to mavenLocal() first (until pushed to GitHub/JitPack)
-(cd ../gradle-reflections-plugin && ./gradlew publishToMavenLocal)
-(cd ../jsondb-core && ./gradlew publishToMavenLocal)
-
 # Run unit tests (verifies plugin-generated index + JsonDBTemplate inside simulated directory-less APK)
 ./gradlew testDebugUnitTest
 
