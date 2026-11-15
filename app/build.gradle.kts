@@ -85,7 +85,7 @@ reflectionsConfig {
 
 dependencies {
     implementation("com.github.Hatzen:reflections:0.10.2-android.1")
-    implementation("com.github.Hatzen:jsondb-core:1.0.132-android.1")
+    implementation("com.github.Hatzen:jsondb-core:1.0.132-android.2")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.dom4j:dom4j:2.1.3") {
         exclude(group = "pull-parser", module = "pull-parser")

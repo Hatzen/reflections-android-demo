@@ -43,7 +43,7 @@ This demo resolves all three Android-fixed forks directly via **JitPack** releas
 
 - `com.github.Hatzen:reflections:0.10.2-android.1`
 - `com.github.Hatzen.gradle-reflections-plugin:gradle-reflections-plugin:1.2.0-android.2`
-- `com.github.Hatzen:jsondb-core:1.0.132-android.1`
+- `com.github.Hatzen:jsondb-core:1.0.132-android.2`
 
 ### Plugin resolution (`settings.gradle.kts` & root `build.gradle.kts`)
 
@@ -96,7 +96,7 @@ reflectionsConfig {
 
 dependencies {
     implementation("com.github.Hatzen:reflections:0.10.2-android.1")
-    implementation("com.github.Hatzen:jsondb-core:1.0.132-android.1")
+    implementation("com.github.Hatzen:jsondb-core:1.0.132-android.2")
 }
 ```
 
